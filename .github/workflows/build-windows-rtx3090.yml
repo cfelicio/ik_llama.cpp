@@ -1,14 +1,6 @@
 name: Build for Windows (RTX 3090 / Ryzen 5800x)
 
 on:
-  push:
-    branches:
-      - main
-    tags:
-      - 'v*'
-  pull_request:
-    branches:
-      - main
   workflow_dispatch:
     inputs:
       version_tag:
@@ -28,8 +20,33 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
         with:
-          submodules: recursive
           fetch-depth: 0
+
+      - name: Sync with Upstream Repository
+        shell: bash
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          
+          # Add upstream remote
+          git remote add upstream https://github.com/ikawrakow/ik_llama.cpp.git
+          
+          # Fetch all branches from upstream and origin
+          git fetch upstream main
+          git fetch origin main:main
+          
+          # Sync origin's main branch with upstream main
+          git checkout main
+          git merge upstream/main --no-edit
+          git push origin main
+          
+          # Switch back to the build branch and merge the updated main
+          git checkout ${{ github.ref_name }}
+          git merge main --no-edit
+          git push origin ${{ github.ref_name }}
+
+      - name: Update Submodules
+        run: git submodule update --init --recursive
 
       - name: Set up MSVC Developer Command Prompt
         uses: ilammy/msvc-dev-cmd@v1
@@ -102,13 +119,13 @@ jobs:
           retention-days: 7 # Deletes Actions run artifact automatically after 7 days
 
       - name: Create GitHub Release
-        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+        if: github.event_name != 'pull_request'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || inputs.version_tag || format('v{0}', github.run_number) }}
-          name: Release ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || inputs.version_tag || format('v{0}', github.run_number) }}
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || (github.event_name == 'workflow_dispatch' && (inputs.version_tag || format('v{0}', github.run_number))) || 'latest' }}
+          name: ${{ startsWith(github.ref, 'refs/tags/') && format('Release {0}', github.ref_name) || (github.event_name == 'workflow_dispatch' && format('Release {0}', inputs.version_tag || format('v{0}', github.run_number))) || 'Latest Main Branch Build' }}
           files: llama-windows-rtx3090-ryzen5800x.zip
           draft: false
-          prerelease: false
+          prerelease: ${{ !startsWith(github.ref, 'refs/tags/') }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
