@@ -35,12 +35,10 @@ jobs:
         uses: ilammy/msvc-dev-cmd@v1
 
       - name: Set up CUDA Toolkit
-        uses: Jimver/cuda-toolkit@v0.2.16
+        uses: Jimver/cuda-toolkit@v0.2.21
         id: cuda-toolkit
         with:
           cuda: '12.4.1'
-          method: 'network'
-          sub-packages: '["compiler", "cublas", "cublas_dev", "cudart", "cufft", "curand", "cusolver", "cusparse", "nvcc", "visual_studio_integration"]'
 
       - name: Verify CUDA and Compiler
         shell: pwsh
