@@ -1,0 +1,116 @@
+name: Build for Windows (RTX 3090 / Ryzen 5800x)
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      version_tag:
+        description: 'Tag name for the release (e.g., v1.0.0). If blank, a default v<run_number> tag will be created.'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    name: Build Optimized Binaries
+    runs-on: windows-2022
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Set up MSVC Developer Command Prompt
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Set up CUDA Toolkit
+        uses: Jimver/cuda-toolkit@v0.2.16
+        id: cuda-toolkit
+        with:
+          cuda: '12.4.1'
+          method: 'network'
+          sub-packages: '["compiler", "cublas", "cublas_dev", "cudart", "cufft", "curand", "cusolver", "cusparse", "nvcc", "visual_studio_integration"]'
+
+      - name: Verify CUDA and Compiler
+        shell: pwsh
+        run: |
+          nvcc --version
+          cl.exe
+
+      - name: Set up ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: ${{ runner.os }}-cuda-rtx3090
+          variant: sccache
+
+      - name: Configure CMake
+        shell: pwsh
+        run: |
+          # Disable GGML_NATIVE to prevent auto-detecting the runner's CPU.
+          # Explicitly configure target SIMD features for Ryzen 5800x (Zen 3): AVX, AVX2, FMA, no AVX512.
+          # Set CUDA architecture to 86 (RTX 3090).
+          cmake -B build -S . `
+            -G "Visual Studio 17 2022" -A x64 `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DGGML_CUDA=ON `
+            -DCMAKE_CUDA_ARCHITECTURES=86 `
+            -DGGML_NATIVE=OFF `
+            -DGGML_AVX=ON `
+            -DGGML_AVX2=ON `
+            -DGGML_FMA=ON `
+            -DGGML_AVX512=OFF `
+            -DCMAKE_C_COMPILER_LAUNCHER=sccache `
+            -DCMAKE_CXX_COMPILER_LAUNCHER=sccache `
+            -DCMAKE_CUDA_COMPILER_LAUNCHER=sccache
+
+      - name: Build Project
+        shell: pwsh
+        run: |
+          cmake --build build --config Release --parallel
+
+      - name: Prepare Artifact Folder
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist
+          # Copy executables
+          Copy-Item -Path "build\bin\Release\*.exe" -Destination dist\ -ErrorAction SilentlyContinue
+          # Copy DLLs
+          Copy-Item -Path "build\bin\Release\*.dll" -Destination dist\ -ErrorAction SilentlyContinue
+          # List files for debugging/log verification
+          Get-ChildItem dist
+
+      - name: Create Zip Archive
+        shell: pwsh
+        run: |
+          Compress-Archive -Path dist/* -DestinationPath llama-windows-rtx3090-ryzen5800x.zip
+
+      - name: Upload Build Artifacts (Actions Run Artifact)
+        uses: actions/upload-artifact@v4
+        with:
+          name: llama-windows-rtx3090-ryzen5800x
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7 # Deletes Actions run artifact automatically after 7 days
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || inputs.version_tag || format('v{0}', github.run_number) }}
+          name: Release ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || inputs.version_tag || format('v{0}', github.run_number) }}
+          files: llama-windows-rtx3090-ryzen5800x.zip
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
