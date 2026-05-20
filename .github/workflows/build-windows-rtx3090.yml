@@ -102,6 +102,13 @@ jobs:
           Copy-Item -Path "build\bin\Release\*.exe" -Destination dist\ -ErrorAction SilentlyContinue
           # Copy DLLs
           Copy-Item -Path "build\bin\Release\*.dll" -Destination dist\ -ErrorAction SilentlyContinue
+          # Copy CUDA Runtime DLLs for portability (so the user doesn't need to install CUDA Toolkit)
+          if ($env:CUDA_PATH) {
+              $cudaBin = Join-Path $env:CUDA_PATH "bin"
+              Copy-Item -Path (Join-Path $cudaBin "cudart64_12.dll") -Destination dist\ -ErrorAction SilentlyContinue
+              Copy-Item -Path (Join-Path $cudaBin "cublas64_12.dll") -Destination dist\ -ErrorAction SilentlyContinue
+              Copy-Item -Path (Join-Path $cudaBin "cublasLt64_12.dll") -Destination dist\ -ErrorAction SilentlyContinue
+          }
           # List files for debugging/log verification
           Get-ChildItem dist
 
